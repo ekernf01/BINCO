@@ -2,7 +2,7 @@
 % Please edit documentation in R/BINCO.r
 \name{bio_beta_power_int}
 \alias{bio_beta_power_int}
-\title{2. numerical intergration of f(x=k/n) #}
+\title{2. numerical integration of f(x=k/n) #}
 \usage{
 bio_beta_power_int(n, k, a, b, r)
 }
@@ -12,5 +12,5 @@ bio_beta_power_int(n, k, a, b, r)
 \item{a}{@param b @param r parameters for the powered beta}
 }
 \description{
-2. numerical intergration of f(x=k/n) #
+2. numerical integration of f(x=k/n) #
 }

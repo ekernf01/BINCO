@@ -12,7 +12,8 @@ BINCO(
   vpr = 0.8,
   conservative = F,
   niv = 3,
-  ini.bound = c(10, 10, 20)
+  ini.bound = c(10, 10, 20),
+  verbose = FALSE
 )
 }
 \arguments{

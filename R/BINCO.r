@@ -2,6 +2,73 @@
 # Exported functions 
 #
 
+#' Run the GENIE3 tree-based variable selection procedure on B bootstrap samples. 
+#'
+#' @param Y target variables
+#' @param X features (covariates)
+#' @param nb Number of bootstrap iterations
+#' @param prop_select What proportion of variables to select at each bootstrap iteration.
+#' 
+#' @export
+#' 
+BINCO.genie3 = function(Y, X, nb, prop_select = 0.2){
+  stopifnot("X and Y may not share column names."=0==length(intersect(colnames(Y), colnames(X))))
+  selection_frequencies = matrix(0, ncol(Y), ncol(X))
+  Z = cbind(Y, X)
+  colnames(Z) = c(colnames(Y), colnames(X))
+  print(paste0("Running ", nb, " bootstrap samples."))
+  results = list()
+  for(b in 1:nb){
+    cat(".")
+    bootstrap_subsample = sample(1:nrow(X), replace = TRUE)
+    results[[b]] = GENIE3::GENIE3(
+      t(Z[bootstrap_subsample,]), 
+      regulators = colnames(X), 
+      targets = colnames(Y),
+      treeMethod = "ET", 
+      nTrees = 100, 
+      nCores = 15, 
+      returnMatrix = TRUE, 
+      verbose = FALSE
+    )
+  }
+  selection_frequencies = results[[b]]*0
+  for(b in 1:nb){
+    selection_frequencies = selection_frequencies + (results[[b]]>quantile(results[[b]], 1-prop_select))
+  }
+  selection_frequencies %<>% reshape2::melt(value.name = "selection_frequency")
+  colnames(selection_frequencies)[1:2] = c("feature", "target")
+  return(selection_frequencies)
+}
+
+#' Given selection frequencies, use BINCO to compute q-values.
+#' 
+#' @param selection_frequency Selection frequencies: one non-negative integer per variable in your regression.
+#' @param nb Number of bootstrap resamples (max possible value of selection_frequency)
+#'
+#' @returns A vector of q-values with the same length as selection_frequency.
+#'
+#' @export
+#'
+BINCO.qvals = function(selection_frequency, nb){
+  u_curve = as.vector(table(factor(selection_frequency, levels = 1:nb)))
+  selection_frequency_cutoffs = as.list(rep(NA, 50))
+  mixture_model = BINCO::BINCO(count.mix = u_curve, nb = nb, vpr = 1, FDR = 1)
+  try({
+    BINCO::BINCO.plot(mixture_model)    
+  })
+  local_fdr = mixture_model$estimated_null / mixture_model$empirical_mix
+  local_fdr = c(1, local_fdr) # Estimate local fdr of never-selected vars as 1
+  selection_frequencies = data.frame(
+    input_index = seq_along(selection_frequency),
+    selection_frequency = selection_frequency, 
+    local_fdr = local_fdr[selection_frequency + 1] # Selection frequencies may include 0, hence the +1
+  )
+  selection_frequencies %<>% dplyr::arrange(local_fdr)
+  selection_frequencies$q = dplyr::cummean(selection_frequencies$local_fdr)
+  selection_frequencies %<>% dplyr::arrange(input_index)
+  return(selection_frequencies$q)
+}
 
 #' Run the BINCO procedure 
 #'
@@ -35,7 +102,7 @@
 #' value is (10,10,20).
 #'
 #' @export
-BINCO<-function(count.mix=NULL, freq.m=NULL, nb=NULL, FDR=0.05, vpr=0.8, conservative=F, niv=3, ini.bound=c(10,10,20))
+BINCO<-function(count.mix=NULL, freq.m=NULL, nb=NULL, FDR=0.05, vpr=0.8, conservative=F, niv=3, ini.bound=c(10,10,20), verbose=FALSE)
 {
   # check input
   if(is.null(count.mix)|(!is.vector(count.mix)))
@@ -73,7 +140,7 @@ BINCO<-function(count.mix=NULL, freq.m=NULL, nb=NULL, FDR=0.05, vpr=0.8, conserv
   }
   
   # fit the null
-  fit<-null.estimate(count.mix=count.mix,mu=mu,vp=vp,niv=niv,mod=conservative)
+  fit<-null.estimate(count.mix=count.mix,mu=mu,vp=vp,niv=niv,conservative=conservative, verbose=verbose)
   fit.count.null<-fit[[1]] # estimate null  
   r<-fit[[2]] # lower bound of the fitting range
   
@@ -92,14 +159,12 @@ BINCO<-function(count.mix=NULL, freq.m=NULL, nb=NULL, FDR=0.05, vpr=0.8, conserv
     est.fdr[j]<-sum(fit.count.null[j:nb])/sum(count.mix[j:nb])
   }
   
-  if (min(est.fdr)>FDR) #if no cutoff gives FDR less than the desired level, give 
-    #the most close one. 
+  if (min(est.fdr)>FDR) #if no cutoff gives FDR less than the desired level, give the most close one. 
   {
     index1=which(est.fdr==min(est.fdr))
     index2=min(index1)
     print("Note: the FDR can not be controlled at the desired level for current input data")
-  }
-  else # find the optimal cutoff
+  } else # find the optimal cutoff
   {
     index1<-which(est.fdr<FDR)
     index2<-min(index1[index1>r])
@@ -312,23 +377,21 @@ u_shape_test<-function(count.mix, vpr=0.8)
 #' 8. estimate the null 
 #'
 #' @param count.mix is the empirical density to fit
-#' @param vp is the valley point value 
+#' @param vp the valley point value 
+#' @param mu where the empirical density starts to decrease
+#' @param niv the number of sets of initial values for parameter fitting
+#' @param conservative if we want to be more sure on that BINCO provides conservative selection
 #' 
-null.estimate<-function(count.mix,mu,vp,niv,mod)
+null.estimate<-function(count.mix,mu,vp,niv,conservative, verbose)
 {
-  #count.mix is the empirical counts distribution for selection frequencies
-  # mu is the where the empirical density starts to decrease
-  # vp is the valley point value
-  # niv is the number of sets of initial values for parameter fitting
-  # mod = F if we want to be more sure on that BINCO provides conservative selection
-  
+
   nb=length(count.mix) #number of bootstraps
   n.grid<-nb
   x<-(1:n.grid)/n.grid
   count.all<-count.mix
   emp.all<-count.all/sum(count.all)
   r.min=mu
-  if (vp>0.6|mod) # for not too small vp, too influential data (corresponding to extremely large counts at the beginning) is not used. 
+  if (vp>0.6|conservative) # for not too small vp, too influential data (corresponding to extremely large counts at the beginning) is not used. 
   {
     VP=vp*nb
     index<-which(count.mix[1:VP]> 20*(count.mix[VP]+1))
@@ -344,7 +407,6 @@ null.estimate<-function(count.mix,mu,vp,niv,mod)
   fitting_score=rep(0,niv)
   fitting_parameter=matrix(0,niv,3)
   try.condition=0
-  print("start fitting...")
   for (i in 1:niv)
   {
     while (try.condition==0)
@@ -355,8 +417,8 @@ null.estimate<-function(count.mix,mu,vp,niv,mod)
     fitting_score[i]=try$objective
     fitting_parameter[i,]=try$par
     try.condition=0
-    message=paste("done ",round(i*100/niv),"%...fitting score=",round(fitting_score[i],4),sep="")
-    print(message)
+    message=paste("Finished ",round(i*100/niv),"% of fitting with score=",round(fitting_score[i],4),sep="")
+    if(verbose){print(message)}
   }
   index.parameter=min(which(fitting_score==min(fitting_score)))
   #estimated null:
@@ -365,7 +427,7 @@ null.estimate<-function(count.mix,mu,vp,niv,mod)
   mar.opt.s<-mar.opt*fac.opt
   fit<-mar.opt.s #fitted density for null
   r=r.min*nb
-  c<-count.mix[r]/emp.all[r] #the constant ratio of the count over its density
+  c<-count.mix[ceiling(r)]/emp.all[ceiling(r)] #the constant ratio of the count over its density
   fit.count.null<-fit*c
   result=list(NULL)
   result[[1]]=fit.count.null

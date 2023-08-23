@@ -2,7 +2,7 @@
 % Please edit documentation in R/BINCO.r
 \name{bio_beta_power}
 \alias{bio_beta_power}
-\title{1. kernal of the convoluted powered beta +binomial density #}
+\title{1. kernel of the convoluted powered beta +binomial density #}
 \usage{
 bio_beta_power(n, k, a, b, r, x)
 }
@@ -12,5 +12,5 @@ bio_beta_power(n, k, a, b, r, x)
 \item{a}{@param b @param r parameters for the powered beta}
 }
 \description{
-1. kernal of the convoluted powered beta +binomial density #
+1. kernel of the convoluted powered beta +binomial density #
 }

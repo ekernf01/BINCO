@@ -4,12 +4,18 @@
 \alias{null.estimate}
 \title{8. estimate the null}
 \usage{
-null.estimate(count.mix, mu, vp, niv, mod)
+null.estimate(count.mix, mu, vp, niv, conservative, verbose)
 }
 \arguments{
 \item{count.mix}{is the empirical density to fit}
 
-\item{vp}{is the valley point value}
+\item{mu}{where the empirical density starts to decrease}
+
+\item{vp}{the valley point value}
+
+\item{niv}{the number of sets of initial values for parameter fitting}
+
+\item{conservative}{if we want to be more sure on that BINCO provides conservative selection}
 }
 \description{
 8. estimate the null
