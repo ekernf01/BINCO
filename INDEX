@@ -1,0 +1,2 @@
+BINCO         A function to calculate the optimal threshold of the selection frequency for variable selection by directly estimating the FDR.
+BINCO.plot    A function to generate a plot illustrating the estimated null distribution of the selection frequencies.
